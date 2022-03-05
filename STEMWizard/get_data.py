@@ -108,7 +108,7 @@ def export_list(self, listname, purge_file=False):
     ole = olefile.OleFileIO(filename_local)
     df = pd.read_excel(ole.openstream('Workbook'), engine='xlrd')
 
-    remotepath = f'/Automation/{self.domain}/{listname} list.xlsx'
+    remotepath = f'/Automation/{self.domain}/{listname} list.xls'
     if df.shape[0] > 0:
         self.googleapi.create_file(filename_local, remotepath)
     else:

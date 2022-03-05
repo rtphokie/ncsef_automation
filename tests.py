@@ -132,7 +132,7 @@ class NCSEF_prod_TestCases_operation(unittest.TestCase):
         self.assertGreaterEqual(int(uut.region_id), 4000)
 
     def test_student_xls(self):
-        uut = STEMWizardAPI(configfile=configfile_prod, login_google=False)
+        uut = STEMWizardAPI(configfile=configfile_prod)
         filename, df = uut.export_list('student')
         self.assertGreater(len(filename), 27)
         self.assertTrue(os.path.exists(filename))
@@ -141,7 +141,7 @@ class NCSEF_prod_TestCases_operation(unittest.TestCase):
         print(f"Students: {df.shape[0]}")
 
     def test_judge_xls(self):
-        uut = STEMWizardAPI(configfile=configfile_prod, login_google=False)
+        uut = STEMWizardAPI(configfile=configfile_prod)
         filename, df = uut.export_list('judge')
         print(df)
         self.assertGreater(len(filename), 20)
@@ -151,7 +151,7 @@ class NCSEF_prod_TestCases_operation(unittest.TestCase):
         print(f"Judges: {df.shape[0]}")
 
     def test_paymentStatus_xls(self):
-        uut = STEMWizardAPI(configfile=configfile_prod, login_google=False)
+        uut = STEMWizardAPI(configfile=configfile_prod)
         filename, df = uut.export_list('paymentStatus')
         # print(df)
         self.assertGreater(len(filename), 20)
