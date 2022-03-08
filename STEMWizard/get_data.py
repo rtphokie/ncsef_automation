@@ -1,4 +1,4 @@
-from .utils import headers
+from utils import headers
 import olefile
 import pandas as pd
 

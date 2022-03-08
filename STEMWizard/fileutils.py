@@ -1,9 +1,8 @@
 import json
-import olefile
-import pandas as pd
-import time
 import os
-from .logstuff import get_logger
+import time
+
+from logstuff import get_logger
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'}
@@ -42,25 +41,12 @@ def read_json_cache(cache_filename, max_cache_age=600):
             fp = open(cache_filename, 'r')
             cache = json.loads(fp.read())
             fp.close()
-            logger.debug(f"read {round(age,1)} min old {cache_filename}")
+            logger.debug(f"read {round(age, 1)} min old {cache_filename}")
         else:
-            logger.debug(f"{round(age,1)} min old {cache_filename} needs to be recreated")
+            logger.debug(f"{round(age, 1)} min old {cache_filename} needs to be recreated")
             cache = {}
     except Exception as e:
         print(e)
         logger.error(e)
         cache = {}
     return cache
-
-#
-# def xlsfile_to_df(local_filename):
-#     ole = olefile.OleFileIO(local_filename)
-#     df = pd.read_excel(ole.openstream('Workbook'), engine='xlrd')
-#     return df
-#
-#
-# def safe_rm_file(local_filename):
-#     try:
-#         os.remove(local_filename)
-#     except OSError as e:
-#         print(f'failed to remove {local_filename} {e}')

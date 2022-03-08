@@ -2,7 +2,7 @@ import os
 import unittest
 from pprint import pprint
 
-from STEMWizard import STEMWizardAPI, google_sync
+from STEMWizard import google_sync, STEMWizardAPI
 from STEMWizard.fileutils import write_json_cache
 from STEMWizard.google_sync import NCSEFGoogleDrive
 
@@ -196,7 +196,51 @@ class devtest(unittest.TestCase):
         uut = STEMWizardAPI(configfile=configfile_prod, login_stemwizard=True, login_google=True)
         data = uut.studentSync(download=True, upload=True)
 
+    def test_shortcut(self):
+        from tqdm import tqdm
+        uut = STEMWizardAPI(configfile=configfile_prod, login_stemwizard=False, login_google=True)
+        from fileutils import read_json_cache
+        data = read_json_cache('caches/student_data.json', max_cache_age=9999999)
+        print(len(data))
+        byp = dict()
+        for d in data.values():
+            byp[d['Project Number']] = d
+        for projectnumber in tqdm(sorted(byp.keys()), desc="symposium links"):
+            v = byp[projectnumber]
+            for filetype, filedata in v['files'].items():
+                for (local_filename, local_lastmod) in zip(filedata['local_filename'], filedata['local_lastmod']):
+                    remote_filename = f"/Automation/ncsef/by project/{local_filename}"
+                    if os.path.exists(f"files/ncsef/{local_filename}"):
+                        if filetype in ['Abstract', 'Quad Chart', 'Project Presentation Slides', 'Research Paper',
+                                        'Lab Notebook']:
+                            elements = remote_filename.replace('by project', 'for symposium').split('/')
+                            remote_dir = '/'.join(elements[:-1])
+                            #    def create_shortcut(self, fullpath_link_to, folder_to_put_link_in, title):
 
+                            pass
+                            uut.googleapi.create_shortcut(remote_filename, remote_dir, elements[-1])
+
+    def test_c(self):
+        uut = STEMWizardAPI(configfile=configfile_prod, login_stemwizard=True, login_google=False)
+        uut.set_columns()
+
+    def test_county(self):
+        import pandas as pd
+        from uszipcode import SearchEngine
+        sr = SearchEngine()
+        df = pd.read_excel('files/ncsef/student_list.xlsx')
+        # df['c'] = df.apply(lambda x: max(len(x['a']), len(x['b'])), axis=1)
+        rows = []
+        for n, row in df.iterrows():
+            if pd.isnull(row['ZIP']):
+                row['County'] = ''
+            else:
+                zip = int(row['ZIP'])
+                row['County'] = sr.by_zipcode(zip).county
+            rows.append(row)
+        df = pd.DataFrame.from_records(rows)
+        print(df)
+        df.to_excel('student_list.xlsx')
 
 
 class NCSEF_prod_TestCases(unittest.TestCase):
@@ -204,7 +248,16 @@ class NCSEF_prod_TestCases(unittest.TestCase):
     def test_student_data(self):
         uut = STEMWizardAPI(configfile=configfile_prod,
                             login_stemwizard=True, login_google=True)
-        student_data = uut.studentSync(download=True, upload=False)
+
+        student_data = uut.studentSync(download=True, upload=True)
+
+    def test_google_sync(self):
+        uut = STEMWizardAPI(configfile=configfile_prod,
+                            login_stemwizard=False, login_google=True)
+        print(uut.googleapi.dump())
+        # from fileutils import read_json_cache
+        # data = read_json_cache('caches/student_data.json', max_cache_age=9000)
+        # uut.sync_to_google(data)
 
 
 if __name__ == '__main__':

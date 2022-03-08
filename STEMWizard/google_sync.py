@@ -9,9 +9,7 @@ from pydrive2.auth import GoogleAuth, ServiceAccountCredentials
 from pydrive2.drive import GoogleDrive
 from tqdm import tqdm
 
-from STEMWizard.logstuff import get_logger
-
-logger = get_logger('google')
+from logstuff import get_logger
 
 
 class NCSEFGoogleDrive(object):
@@ -40,14 +38,15 @@ class NCSEFGoogleDrive(object):
 
                          }
 
-    def __init__(self, cache_file_name = 'caches/GoogleDriveCache.json'):
+    def __init__(self, cache_file_name='caches/GoogleDriveCache.json'):
         ''' instantiate object'''
+        self.logger = get_logger('google')
         self.cache_file_name = cache_file_name
         self.drive = self._auth()
         self.ids = None
         self.last_updated = None
         self.last_checked = None
-        self.list_all(force=True)
+        self.list_all(force=False)
 
     def __str__(self, indent_character=' ', show_emoji=True, root=None):
         '''output object as a string'''
@@ -114,6 +113,7 @@ class NCSEFGoogleDrive(object):
                    'last_checked': self.last_checked}, fp, indent=2)
         fp.close()
 
+
     def _find_file(self, fullpath, refresh=False):
         found = False
         isafolder = False
@@ -138,7 +138,7 @@ class NCSEFGoogleDrive(object):
             nodeid, parentid, parentpath, title, isafolder = self._find_file(fullpath, refresh=False)
         return nodeid, parentid, parentpath, title, isafolder
 
-    def list_all(self, id=None, cache_checked_ttl=300, cache_update_ttl=21600, force=False):
+    def list_all(self, id=None, cache_checked_ttl=660, cache_update_ttl=21600, force=False):
         try:
             fp = open(self.cache_file_name, 'r')
             cache = json.loads(fp.read())
@@ -157,7 +157,7 @@ class NCSEFGoogleDrive(object):
         updated_delta = utcnow - parser.isoparse(last_updated)
 
         if force or checked_delta.total_seconds() > cache_checked_ttl or updated_delta.total_seconds() > cache_update_ttl:
-            logger.info(f'refetching file info, last checked {checked_delta.total_seconds() / 60:.1f} minutes ago')
+            self.logger.info(f'refetching file info, last checked {checked_delta.total_seconds() / 60:.1f} minutes ago')
             last_checked = utcnow.isoformat()
             for file_list in self.drive.ListFile({'q': 'trashed=false', 'maxResults': 500}):
                 for fileinfo in file_list:
@@ -169,7 +169,8 @@ class NCSEFGoogleDrive(object):
                     cache_by_id[fileinfo['id']]['children'] = []
                     cache_by_id[fileinfo['id']]['fullpath'] = ''
         else:
-            logger.debug(f'using cached file info, last checked {checked_delta.total_seconds() / 60:.1f} minutes ago')
+            self.logger.debug(
+                f'using cached file info, last checked {checked_delta.total_seconds() / 60:.1f} minutes ago')
 
         for id, data in cache_by_id.items():
             if data['modifiedDate'] > last_updated:
@@ -197,6 +198,9 @@ class NCSEFGoogleDrive(object):
         if not shortcut:
             id_to_link_to, _, _, _, _ = self._find_file(fullpath_link_to)
             id_to_create_link_in, _, _, _, _ = self._find_file(folder_to_put_link_in)
+            if id_to_create_link_in is None:
+                item = self.create_folder(folder_to_put_link_in)
+                id_to_create_link_in = item['id']
 
             shortcut_metadata = {
                 "title": title,
@@ -208,8 +212,12 @@ class NCSEFGoogleDrive(object):
             shortcut = self.drive.CreateFile(shortcut_metadata)
             try:
                 shortcut.Upload()
+                self.logger.info(f'create link to  to  {fullpath_link_to} in {folder_to_put_link_in} as {title}')
             except Exception as e:
-                logger.error(f"error creating link to  {fullpath_link_to} in {folder_to_put_link_in} as {title} {e}")
+                self.logger.error(
+                    f"error creating link to  {fullpath_link_to} in {folder_to_put_link_in} as {title} id {id_to_create_link_in} {e}")
+        else:
+            self.logger.debug(f'shortcut to {fullpath_link_to} already in {folder_to_put_link_in}')
 
         return shortcut
 
@@ -229,14 +237,14 @@ class NCSEFGoogleDrive(object):
             elements = remotepath.split('/')
             title = elements[-1]
             if not parentid:
-                logger.debug(f'creating {parentpath}')
+                self.logger.debug(f'creating {parentpath}')
                 parentitem = self.create_folder(parentpath)
                 parentid = parentitem['id']
             if nodeid:
                 item = self.drive.CreateFile({'id': nodeid})
                 item.SetContentFile(localpath)
                 item.Upload()
-                logger.info(f'updated {remotepath} {nodeid} from {localpath}')
+                self.logger.info(f'updated {remotepath} {nodeid} from {localpath}')
             else:
                 for ext, mtype in NCSEFGoogleDrive.common_mime_types.items():
                     if localpath.endswith(f'.{ext}'):
@@ -249,17 +257,17 @@ class NCSEFGoogleDrive(object):
                 except:
                     print(localpath)
                     pprint(metadata)
-                logger.info(f'created {remotepath}')
+                self.logger.info(f'created {remotepath}')
         elif update_on == 'newer' and localmtime < remotemtime:
-            logger.info(f'no update needed for {remotepath}')
+            self.logger.info(f'no update needed for {remotepath}')
         else:
-            logger.error('create_file unknown error')
+            self.logger.error('create_file unknown error')
 
-    def create_folder(self, full_remote_path, expectedroot='Automation', refresh=True):
+    def create_folder(self, full_remote_path, expectedroot='Automation', refresh=False):
         item = {}
         nodeid, parentid, parentpath, title, isafolder = self._find_file(full_remote_path)
         if nodeid and not isafolder:
-            logger.error(f"{full_remote_path} already exists as a non-folder")
+            self.logger.error(f"{full_remote_path} already exists as a non-folder")
         elif nodeid:
             metadata = {"title": title, "parents": [{"id": parentid}], 'id': id}
             return metadata
@@ -281,7 +289,7 @@ class NCSEFGoogleDrive(object):
             self._write_cache()
 
             parentid = item['id']
-            logger.info(f"created {title} in {parentpath} {item['id']}")
+            self.logger.info(f"created {title} in {parentpath} {item['id']}")
 
             if refresh:
                 self.list_all(cache_update_ttl=0)
@@ -321,21 +329,3 @@ class NCSEFGoogleDrive(object):
                 raise ValueError('no not this one')
             item = self.drive.CreateFile({'id': data['id']})
             item.Trash()
-
-# def get_sheet(sheetname):
-#     config = conf.get_config(conf_dir='.', file_name='google_secret.json')
-#
-#     logger.info(f'fetching {sheetname} from Google')
-#     try:
-#         spread = Spread(sheetname, config=config)
-#         df = spread.sheet_to_df(index=None)
-#         perm = spread.list_permissions()
-#         pprint(perm)
-#         print(df)
-#         spread.move('/')
-#
-#
-#     except SpreadsheetNotFound as e:
-#         logger.error(
-#             f"{e} {sheetname}, ensure that the sheet is shared with")
-#         raise
