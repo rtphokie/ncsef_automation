@@ -251,13 +251,11 @@ class NCSEF_prod_TestCases(unittest.TestCase):
 
         student_data = uut.studentSync(download=True, upload=True)
 
-    def test_google_sync(self):
+    def test_google_dump(self):
         uut = STEMWizardAPI(configfile=configfile_prod,
                             login_stemwizard=False, login_google=True)
-        print(uut.googleapi.dump())
-        # from fileutils import read_json_cache
-        # data = read_json_cache('caches/student_data.json', max_cache_age=9000)
-        # uut.sync_to_google(data)
+        print(uut.googleapi.dump('Automation'))
+
 
 
 if __name__ == '__main__':
