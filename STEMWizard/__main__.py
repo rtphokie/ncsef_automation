@@ -18,9 +18,10 @@ pd.set_option('display.max_columns', None)
 
 
 class STEMWizardAPI(object):
-    from get_data import export_list
-    from utils import get_region_info, get_csrf_token
-    # from utils import set_columns
+    from get_data import export_list, export_report
+    from get_data import download_file_from_url_via_get, download_from_stemwizard_via_post
+    from get_data import download_file_from_url_via_get, download_from_stemwizard_via_post
+    from utils import get_region_info, get_csrf_token, _merge_dicts, _download_to_local_file_path
 
     def __init__(self, configfile='stemwizardapi.yaml', login_stemwizard=True, login_google=True):
         '''
@@ -110,53 +111,6 @@ class STEMWizardAPI(object):
 
         return authenticated
 
-    def _merge_dicts(self, data):
-        '''
-        merges the file information found
-        :param data:
-        :return:
-        '''
-        data['all'] = data['project']  # use project meta data from project tab
-        for tab_name in ['file', 'form']:
-            for studentid, studentdata in data[tab_name].items():
-                if studentid not in data['all'].keys():
-                    data['all'][studentid] = {}
-                if 'files' in studentdata.keys():
-                    if 'files' not in data['all'][studentid].keys():
-                        data['all'][studentid]['files'] = {}
-                    j = data['all'][studentid]
-                    data['all'][studentid]['files'] = data['all'][studentid]['files'] | studentdata['files']
-                else:
-                    data['all'] = data['all'] | studentdata
-        write_json_cache(data['all'], 'caches/student_data.json')
-        return data
-
-    def _download_to_local_file_path(self, full_pathname, r):
-        '''
-        stream the given requests object to a local file
-
-        :param full_pathname:
-        :param r:
-        :return:
-        '''
-        atoms = full_pathname.split('/')
-        dir = f"files/{self.region_domain}"
-        for ele in atoms[:-1]:
-            dir += f"/{ele}"
-            os.makedirs(dir, exist_ok=True)
-
-        if r.status_code >= 300:
-            raise Exception(f'{r.status_code}')
-        if r.headers['Content-Type'] == 'text/html':
-            self.logger.error(f"failed to download {full_pathname}")
-        else:
-            f = open(f"files/{self.region_domain}/{full_pathname}", 'wb')
-            for chunk in r.iter_content(chunk_size=512 * 1024):
-                if chunk:  # filter out keep-alive new chunks
-                    f.write(chunk)
-            f.close()
-            self.logger.info(f"download_to_local_file_path: downloaded to {full_pathname}")
-
     def _student_file_detail(self, studentId, info_id):
         ''' fetches info about a given studentID (project really) '''
         self.get_csrf_token()
@@ -221,7 +175,7 @@ class STEMWizardAPI(object):
                     data.append(row)
         return data
 
-    def studentSync(self, cache_file_name='caches/student_data.json', download=True, upload=True, refresh=False):
+    def studentSync(self, cache_file_name='caches/student_data.json', download=True, upload=True, refresh=False, force=False):
         '''
         sync student files from STEM Wizard to local filesystem and then up to Google Drive
 
@@ -280,7 +234,7 @@ class STEMWizardAPI(object):
 
         if download:
             self.logger.info('synching to local filesystem')
-            self.sync_files_locally(data['localized'])
+            self.sync_files_locally(data['localized'], force=force)
         else:
             self.logger.info('not synching to local filesystem')
 
@@ -335,7 +289,6 @@ class STEMWizardAPI(object):
                     fullpath = f"files/ncsef/{filepath}"
                     if os.path.exists(fullpath):
                         filedata['local_lastmod'].append(datetime.fromtimestamp(os.path.getmtime(fullpath)))
-
                     else:
                         filedata['local_lastmod'].append(None)
         return data
@@ -378,7 +331,7 @@ class STEMWizardAPI(object):
 
         return data
 
-    def sync_files_locally(self, data):
+    def sync_files_locally(self, data, force=True):
         '''
         iterate over projects, ensureing each file has been downloaded locally
         :param data:
@@ -391,13 +344,13 @@ class STEMWizardAPI(object):
                 if len(filedata['url']) > 0:
                     for (url, local_filename, local_lastmod) in zip(filedata['url'], filedata['local_filename'],
                                                                     filedata['local_lastmod']):
-                        if 'amazonaws.com' in url and local_lastmod is None:
+                        if 'amazonaws.com' in url and (force or local_lastmod is None):
                             self.download_file_from_url_via_get(url, local_filename)
                 else:
                     for (remote_filename, local_filename, local_lastmod) in zip(filedata['remote_filename'],
                                                                                 filedata['local_filename'],
                                                                                 filedata['local_lastmod']):
-                        if len(remote_filename) > 0 and local_lastmod is None:
+                        if len(remote_filename) > 0 and (force or local_lastmod is None):
                             self.download_from_stemwizard_via_post(remote_filename, local_filename)
 
     def get_files_and_forms(self):
@@ -459,38 +412,6 @@ class STEMWizardAPI(object):
                                 studentdata['files'][th_labels[n]]['url'].append(link['href'])
                                 studentdata['files'][th_labels[n]]['remote_filename'].append(atoms[-1])
                 data[studentid] = studentdata
-        return data
-
-    def _patch_team_filepaths(self, data):
-        '''
-        gross, but works.  Patches around a bug on the STEM Wizard milestones page which displays the same link for each team member for files
-        that are unique to that team members (ISEF-1b & Participant Signature Page), by using the AJAX fetch of this information from the forms and files page
-        This shouldn't have to exist, but here we are
-
-        :param data: dictionary of dictionaries with what we learned about the files for each student from the "view files"
-                     link on the files and forms screen (not the milestone)
-        :return:
-        '''
-        teams=[]
-        for k, v in data.items():
-            if len(v['First Name']) > 1:
-                teams.append(k)
-
-        for k in tqdm(teams, desc='patch team files'):
-            v=data[k]
-            self.logger.info(f'patching file info for {k} {v["Project Number"]}')
-            updated = self._student_file_detail(k, None)
-            for filetype in ['ISEF-1b', 'Participant Signature Page']:
-                for attr in ['url', 'remote_filename']:
-                    v['files'][filetype][attr] = []
-                    for rows in updated.values():
-                        for row in rows:
-                            try:
-                                if row['FILE TYPE'] == filetype:
-                                    if type(row['FILE NAME']) == dict and attr in row['FILE NAME'].keys():
-                                        v['files'][filetype][attr].append(row['FILE NAME'][attr])
-                            except:
-                                pass
         return data
 
     def get_judges_materials(self):
@@ -605,46 +526,9 @@ class STEMWizardAPI(object):
                         data[studentid][th_labels[n]] = td.text.strip()
         return data
 
-    def download_file_from_url_via_get(self, url, local_filename):
-        '''
-        streams a specified URL to a local filename, generic get of binary file
-
-        :param url: the url
-        :param local_filename: the filename to write the streamed file to
-        :return:
-        '''
-        # self.logger.debug(f"DownloadFileFromS3Bucket: downloading {url} to {local_dir} as {local_filename} from S3")
-        r = self.session.get(url)
-
-        if r.status_code >= 300:
-            self.logger.error(f"status code {r.status_code} on post to {url}")
-            return
-
-        return self._download_to_local_file_path(local_filename, r)
-
-    def download_from_stemwizard_via_post(self, filename_remote, local_file_path, referer='FilesAndForms'):
-        '''
-        download files delivered from STEMWizard via a POST call
-        :param filename_remote: filename in the STEMWizard system
-        :param local_file_path: local filename to download to
-        :param referer: STEMWizard page the request comes from, defaulted to FilesAndForms, generally good enough for any request
-        :return:
-        '''
-        self.get_csrf_token()
-        headers['X-CSRF-TOKEN'] = self.csrf
-        headers['Referer'] = f'{self.url_base}f/fairadmin/{referer}'
-        url = f'{self.url_base}/fairadmin/fileDownload'
-
-        payload = {'_token': self.token,
-                   'download_filen_path': '/EBS-Stem/stemwizard/webroot/stemwizard/public/assets/images/milestone_uploads',
-                   'download_hideData': filename_remote,
-                   }
-
-        rf = self.session.post(url, data=payload, headers=headers)
-        if rf.status_code >= 300:
-            self.logger.error(f"status code {rf.status_code} on post to {url}")
-            return
-        return self._download_to_local_file_path(local_file_path, rf)
+    def download_student_reports(self, saved_report_id=972, report_title='Treasurer Report'):
+        # wrapper for download_reports
+        return self.export_report(saved_report_id, 1, report_title)
 
 
 if __name__ == '__main__':
@@ -657,18 +541,26 @@ if __name__ == '__main__':
     parser.add_argument("--nodownload", action='store_true',
                         help="download files from STEM Wizard (default: %(default)s)")
     parser.add_argument("--config", default='stemwizardapi_ncsef.yaml', help="config file")
-    parser.add_argument('--list', default='all', const='all', nargs='?', choices=['judge', 'student', 'all', 'none'],
-                        help='judges, students or both (default: %(default)s)')
+    parser.add_argument('--reports', default='all', const='all', nargs='?',
+                        choices=['judge', 'student', 'treasurer', 'all', 'none'],
+                        help='(default: %(default)s)')
 
     args = parser.parse_args()
 
     print("logging into STEMWizard")
     uut = STEMWizardAPI(configfile=args.config, login_stemwizard=True, login_google=True)
 
+    local_filenames = {'student': 'files/ncsef/student_list.xls'}
+    dfs = {}
     for listname in ['student', 'judge']:
-        if args.list == listname or args.list == 'all':
+        if listname in args.reports or args.reports == 'all':
             print(f'generating {listname} list')
-            filename, df = uut.export_list(listname)
+            local_filenames[listname], dfs[listname] = uut.export_list(listname)
+
+    if 'treasurer' in args.reports:
+        print(f"generating treasurer's report")
+        local_filename = uut.download_student_reports(saved_report_id=972, report_title='Treasurer Report')
+
     if not args.nostudent:
         print('analyzing student files')
         student_data = uut.studentSync()

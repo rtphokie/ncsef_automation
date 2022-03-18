@@ -259,7 +259,7 @@ class NCSEFGoogleDrive(object):
                     pprint(metadata)
                 self.logger.info(f'created {remotepath}')
         elif update_on == 'newer' and localmtime < remotemtime:
-            self.logger.info(f'no update needed for {remotepath}')
+            self.logger.debug(f'no update needed for {remotepath}')
         else:
             self.logger.error('create_file unknown error')
 

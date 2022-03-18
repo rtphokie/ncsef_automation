@@ -1,4 +1,6 @@
 from bs4 import BeautifulSoup
+from fileutils import read_json_cache, write_json_cache
+import os
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'}
@@ -54,6 +56,7 @@ def get_csrf_token(self):
         if csrf is not None:
             self.csrf = csrf.get('content')
         self.logger.info(f"gathered CSRF token {self.csrf}")
+
 
 def set_columns(self, listname='judge'):
     '''
@@ -135,9 +138,9 @@ def set_columns(self, listname='judge'):
 
     # find the column codes
     soup = BeautifulSoup(r1.text, 'lxml')
-    all_columns = {'0','1','2'}
+    all_columns = {'0', '1', '2'}
     for ele in soup.find_all('input', {'class', 'ace chkslct'}):
-        jkl=ele.get('value')
+        jkl = ele.get('value')
         if len(jkl):
             all_columns.add(jkl)
     payload = {'checked_fields': ','.join(all_columns),
@@ -150,3 +153,51 @@ def set_columns(self, listname='judge'):
     if r2.status_code != 200:
         raise ValueError(f"status code {r2.status_code} from POST to {url2}")
 
+
+def _merge_dicts(self, data):
+    '''
+    merges the file information found
+    :param data:
+    :return:
+    '''
+    data['all'] = data['project']  # use project meta data from project tab
+    for tab_name in ['file', 'form']:
+        for studentid, studentdata in data[tab_name].items():
+            if studentid not in data['all'].keys():
+                data['all'][studentid] = {}
+            if 'files' in studentdata.keys():
+                if 'files' not in data['all'][studentid].keys():
+                    data['all'][studentid]['files'] = {}
+                j = data['all'][studentid]
+                data['all'][studentid]['files'] = data['all'][studentid]['files'] | studentdata['files']
+            else:
+                data['all'] = data['all'] | studentdata
+    write_json_cache(data['all'], 'caches/student_data.json')
+    return data
+
+
+def _download_to_local_file_path(self, full_pathname, r):
+    '''
+    stream the given requests object to a local file
+
+    :param full_pathname:
+    :param r:
+    :return:
+    '''
+    atoms = full_pathname.split('/')
+    dir = f"files/{self.region_domain}"
+    for ele in atoms[:-1]:
+        dir += f"/{ele}"
+        os.makedirs(dir, exist_ok=True)
+
+    if r.status_code >= 300:
+        raise Exception(f'{r.status_code}')
+    if r.headers['Content-Type'] == 'text/html':
+        self.logger.error(f"failed to download {full_pathname}")
+    else:
+        f = open(f"files/{self.region_domain}/{full_pathname}", 'wb')
+        for chunk in r.iter_content(chunk_size=512 * 1024):
+            if chunk:  # filter out keep-alive new chunks
+                f.write(chunk)
+        f.close()
+        self.logger.info(f"download_to_local_file_path: downloaded to {full_pathname}")

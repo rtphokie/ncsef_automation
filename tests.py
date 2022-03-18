@@ -220,16 +220,18 @@ class devtest(unittest.TestCase):
                             pass
                             uut.googleapi.create_shortcut(remote_filename, remote_dir, elements[-1])
 
-    def test_c(self):
+    def test_download_reports(self):
         uut = STEMWizardAPI(configfile=configfile_prod, login_stemwizard=True, login_google=False)
-        uut.set_columns()
+        uut.export_report()
 
     def test_county(self):
         import pandas as pd
         from uszipcode import SearchEngine
         sr = SearchEngine()
-        df = pd.read_excel('files/ncsef/student_list.xlsx')
-        # df['c'] = df.apply(lambda x: max(len(x['a']), len(x['b'])), axis=1)
+        import olefile
+        filename_local='files/ncsef/student_list.xls'
+        ole = olefile.OleFileIO(filename_local)
+        df = pd.read_excel(ole.openstream('Workbook'), engine='xlrd')
         rows = []
         for n, row in df.iterrows():
             if pd.isnull(row['ZIP']):
@@ -249,14 +251,16 @@ class NCSEF_prod_TestCases(unittest.TestCase):
         uut = STEMWizardAPI(configfile=configfile_prod,
                             login_stemwizard=True, login_google=True)
 
-        student_data = uut.studentSync(download=True, upload=True)
+        student_data = uut.studentSync(download=True, upload=False, force=False)
 
     def test_google_dump(self):
         uut = STEMWizardAPI(configfile=configfile_prod,
                             login_stemwizard=False, login_google=True)
         print(uut.googleapi.dump('Automation'))
 
-
+    def test_treasruer_report(self):
+        uut = STEMWizardAPI(configfile=configfile_prod,
+                            login_stemwizard=False, login_google=False)
 
 if __name__ == '__main__':
     unittest.main()
